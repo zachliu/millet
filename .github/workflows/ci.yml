@@ -89,6 +89,7 @@ jobs:
             tests/test_summarize.py \
             tests/test_summarize_twopass.py \
             tests/test_summarize_tinfoil_retry.py \
+            tests/test_summarize_bedrock.py \
             tests/test_frontmatter.py \
             tests/test_pdf.py \
             tests/test_label.py \

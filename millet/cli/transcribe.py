@@ -159,10 +159,10 @@ def _cue_frames(audio_path, enabled: bool):
 @click.option(
     "--summary-backend",
     type=click.Choice(
-        ["tinfoil", "ollama"], case_sensitive=False
+        ["tinfoil", "ollama", "bedrock"], case_sensitive=False
     ),
     default=None,
-    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var)",
+    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var). bedrock sends the transcript to AWS.",
 )
 @click.option(
     "--summary-model",
@@ -392,13 +392,13 @@ def transcribe(
         click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
         click.echo(err=True)
         click.echo("  To download it, run:", err=True)
-        click.echo(f"    meet download {exc.lang}", err=True)
+        click.echo(f"    millet download {exc.lang}", err=True)
         click.echo(err=True)
         click.echo(
             "  Or skip alignment (fewer segments, no word-level timestamps):", err=True
         )
         click.echo(
-            f"    meet transcribe {audio_file} --language {exc.lang} --skip-alignment",
+            f"    millet transcribe {audio_file} --language {exc.lang} --skip-alignment",
             err=True,
         )
         raise SystemExit(1) from None

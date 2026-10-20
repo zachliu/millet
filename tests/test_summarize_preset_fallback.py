@@ -50,10 +50,12 @@ from millet.summarize import (
 
 class TestBackendRegistry:
     def test_only_private_backends_remain(self):
-        # Every backend is private: tinfoil/venice/near are attested TEEs,
-        # ollama is local.  No plaintext cloud backend may reappear.
-        assert set(BACKENDS) == {"tinfoil", "ollama", "venice", "near"}
+        # tinfoil/venice/near are attested TEEs, ollama is local.  The fork's
+        # bedrock backend is the one non-private exception: opt-in only, so
+        # it must never sit in the default fallback chain.
+        assert set(BACKENDS) == {"tinfoil", "ollama", "venice", "near", "bedrock"}
         assert not (set(BACKENDS) & set(RETIRED_BACKENDS))
+        assert "bedrock" not in DEFAULT_FALLBACK_ORDER
 
     def test_retired_backends_rejected_when_explicit(self):
         """An explicit backend= is a caller bug and must fail loudly."""

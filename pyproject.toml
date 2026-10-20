@@ -108,6 +108,11 @@ tee = []
 # English-only benchmark target; opt-in via --asr-backend parakeet.
 # For CUDA, install onnxruntime-gpu separately on the GPU host.
 parakeet = ["onnx-asr[hub]>=0.11"]
+# Claude in Amazon Bedrock summary backend (fork addition, opt-in via
+# --summary-backend bedrock).  The extra pulls boto3 for SigV4 signing.
+# 1.15 is the oldest version verified to ship AnthropicBedrockMantle and
+# BetaRefusalFallbackMiddleware.
+bedrock = ["anthropic[bedrock]>=1.15"]
 dev = ["ruff", "pytest", "pytest-timeout"]
 
 [tool.ruff]

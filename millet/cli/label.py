@@ -242,10 +242,10 @@ def _apply_json_mode(
 @click.option(
     "--summary-backend",
     type=click.Choice(
-        ["tinfoil", "ollama"], case_sensitive=False
+        ["tinfoil", "ollama", "bedrock"], case_sensitive=False
     ),
     default=None,
-    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var)",
+    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var). bedrock sends the transcript to AWS.",
 )
 @click.option(
     "--summary-model",

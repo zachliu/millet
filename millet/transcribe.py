@@ -257,7 +257,7 @@ class AlignmentModelMissing(Exception):
         super().__init__(
             f"Alignment model for {self.lang_name} ({lang}) is not downloaded.\n"
             f"  Model: {model_name} ({model_type}, {self.estimated_size})\n"
-            f"  Run:   meet download {lang}"
+            f"  Run:   millet download {lang}"
         )
 
 
@@ -2678,14 +2678,18 @@ def _correct_mic_bleed_segments(
     * its text closely matches (``>= dup_sim``) a temporally overlapping remote
       segment — a delayed echo of what a remote actually said.
 
-    Bled segments are **reassigned to the diarized remote speaker that overlaps
-    them in time** (or ``remote_fallback`` when none does), preserving the
-    content with correct attribution instead of attributing it to YOU.  Empty /
-    punctuation-only mic artifacts are dropped.  Genuine local speech
-    (mic-dominant words, no remote twin) is left as YOU, so the correction is
-    conservative and never invents or merges named remote speakers.
+    An **echo** (text twin of an overlapping remote segment) is dropped: its
+    content is by definition already in the system-channel transcript, and
+    keeping it printed every remote line twice.  Other bled segments are
+    **reassigned to the diarized remote speaker that overlaps them in time**
+    (or ``remote_fallback`` when none does), preserving content the system
+    channel may have missed.  Empty / punctuation-only mic artifacts are
+    dropped.  Genuine local speech (mic-dominant words, no remote twin) is left
+    as YOU, so the correction is conservative and never invents or merges
+    named remote speakers.
 
-    Returns the corrected list of segments (YOU + reassigned), excluding empties.
+    Returns the corrected list of segments (YOU + reassigned), excluding
+    empties and echoes.
     """
     import difflib
 
@@ -2743,27 +2747,29 @@ def _correct_mic_bleed_segments(
     out: list[Segment] = []
     reassigned = 0
     dropped = 0
+    echoes = 0
     for seg in mic_segments:
         if not _norm_dup_text(seg.text):
             dropped += 1
             continue
+        if _is_echo(seg):
+            echoes += 1
+            continue
         seg_ratio = _seg_channel_ratio(mic, sys_, seg.start, seg.end, sr, n)
         wsf = _word_sys_fraction(seg)
-        is_bleed = (
-            (seg_ratio is not None and seg_ratio < lo)
-            or (wsf is not None and wsf >= word_sys_frac)
-            or _is_echo(seg)
+        is_bleed = (seg_ratio is not None and seg_ratio < lo) or (
+            wsf is not None and wsf >= word_sys_frac
         )
         if is_bleed:
             seg.speaker = _overlapping_remote(seg) or remote_fallback
             reassigned += 1
         out.append(seg)
 
-    if reassigned or dropped:
+    if reassigned or dropped or echoes:
         print(
-            f"  Mic-bleed correction: reassigned {reassigned} of "
-            f"{len(mic_segments)} local segment(s) to remote crosstalk, "
-            f"dropped {dropped} empty"
+            f"  Mic-bleed correction: of {len(mic_segments)} local segment(s), "
+            f"dropped {echoes} echo(es) of remote speech, reassigned "
+            f"{reassigned} to remote crosstalk, dropped {dropped} empty"
         )
     return out
 

@@ -1158,7 +1158,8 @@ class TestCorrectMicBleedSegments:
     """No-headphones bleed correction for the dual-diarize mic channel.
 
     Bled 'YOU' segments are reassigned to the overlapping remote speaker
-    (or a generic fallback), not dropped; empties are dropped.
+    (or a generic fallback); echoes of a remote segment and empties are
+    dropped.
     """
 
     def test_system_dominant_mic_segment_reassigned_to_overlapping_remote(
@@ -1195,8 +1196,12 @@ class TestCorrectMicBleedSegments:
         out = _correct_mic_bleed_segments(wav, mic_segs, sys_segments=[], margin=0.30)
         assert [(s.text, s.speaker) for s in out] == [("hello team", "YOU")]
 
-    def test_echo_duplicate_of_remote_reassigned(self, tmp_path):
-        """A mic segment echoing an overlapping remote segment is reassigned."""
+    def test_echo_duplicate_of_remote_dropped(self, tmp_path):
+        """A mic segment echoing an overlapping remote segment is dropped.
+
+        The remote segment already carries the content; keeping the echo
+        printed every remote line twice in no-headphones recordings.
+        """
         # Mic-dominant audio (energy alone would keep it), but the text is a
         # near-duplicate of a remote segment at the same time -> echo.
         wav = _write_stereo(tmp_path / "m.wav", [(0.0, 3.0, "mic")])
@@ -1207,9 +1212,15 @@ class TestCorrectMicBleedSegments:
             Segment(0.2, 3.2, "the servers now to control", speaker="Openoms"),
         ]
         out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
-        assert [(s.text, s.speaker) for s in out] == [
-            ("the servers now to control", "Openoms")
-        ]
+        assert out == []
+
+    def test_system_dominant_echo_dropped_not_duplicated(self, tmp_path):
+        """Bleed that is also a text twin is dropped, not reassigned."""
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 3.0, "sys")])
+        mic_segs = [Segment(0.1, 3.1, "The build passed on the second try.", speaker="YOU")]
+        sys_segs = [Segment(0.0, 3.0, "The build passed on the second try.", speaker="SPEAKER_01")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert out == []
 
     def test_empty_segment_dropped(self, tmp_path):
         """Punctuation-only mic artifacts are removed."""

@@ -8,6 +8,9 @@ Every supported backend keeps meeting content private:
              TDX + NVIDIA H100/H200 Confidential Computing; millet verifies
              each enclave's NRAS attestation + freshness nonce itself).
   - ollama:  Local Ollama server (free, fully local, never leaves the box).
+  - bedrock: Claude in Amazon Bedrock (fork addition).  NOT private: AWS
+             processes the transcript.  Opt-in only -- never part of the
+             default fallback chain.
 
 The non-private cloud backends (claudemax, openrouter, openai) were removed
 in 0.19.0.  A TEE model measurably out-summarized Sonnet 4.6 on grounded
@@ -159,6 +162,75 @@ ATTESTED_BACKENDS: dict[str, dict[str, object]] = {
         "confidentiality": "tee-terminated-tls",  # direct-completions terminate TLS in the TEE
     },
 }
+
+
+# ─── AWS Bedrock (opt-in, NOT private) ─────────────────────────────────────
+#
+# Claude in Amazon Bedrock via the Anthropic SDK's Mantle client (the
+# Messages-API Bedrock endpoint).  Unlike every other backend this one is not
+# a TEE and not local: AWS processes the transcript under the account's
+# Bedrock data-protection terms.  It therefore never joins the default
+# fallback chain -- it runs only when chosen as the primary backend
+# (--summary-backend bedrock / MILLET_SUMMARY_BACKEND=bedrock) or listed
+# explicitly in MILLET_SUMMARY_FALLBACK_ORDER.
+#
+# Credentials and region come from the standard AWS chain (AWS_PROFILE,
+# AWS_ACCESS_KEY_ID/..., SSO, AWS_REGION, ~/.aws/config) or a Bedrock bearer
+# token in AWS_BEARER_TOKEN_BEDROCK.  MILLET_BEDROCK_REGION overrides the
+# region for millet only; with no region configured anywhere, us-east-1.
+DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-5-5"
+DEFAULT_BEDROCK_REGION = "us-east-1"
+# Bedrock has no server-side refusal fallback, so the SDK's client-side
+# middleware retries a policy decline once on this model.
+BEDROCK_REFUSAL_FALLBACK_MODEL = "anthropic.claude-opus-4-8"
+# Opus 5.5 defaults to "medium"; set it explicitly so the default is visible.
+# MILLET_BEDROCK_EFFORT overrides; an empty value omits the field (needed for
+# models that reject `effort`, e.g. Haiku 4.5).
+DEFAULT_BEDROCK_EFFORT = "medium"
+_BEDROCK_MAX_TOKENS = 64000
+_BEDROCK_TOKEN_ENV_VARS = ("AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_AWS_API_KEY")
+
+
+def bedrock_sdk_installed() -> bool:
+    """Is the Anthropic SDK with its Bedrock extra importable?"""
+    return (
+        importlib.util.find_spec("anthropic") is not None
+        and importlib.util.find_spec("boto3") is not None
+    )
+
+
+def _bedrock_credentials_available() -> bool:
+    """True when a Bedrock bearer token or AWS credentials resolve."""
+    if any(os.environ.get(v) for v in _BEDROCK_TOKEN_ENV_VARS):
+        return True
+    try:
+        import boto3
+
+        return boto3.Session().get_credentials() is not None
+    except Exception:  # bad profile name, malformed config, ...
+        return False
+
+
+def _resolve_bedrock_region() -> str | None:
+    """Region for the Mantle client.
+
+    MILLET_BEDROCK_REGION > AWS_REGION / AWS_DEFAULT_REGION > the AWS
+    profile's region > DEFAULT_BEDROCK_REGION.  None only when
+    ANTHROPIC_BEDROCK_MANTLE_BASE_URL is set, so the SDK uses that URL.
+    """
+    for var in ("MILLET_BEDROCK_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"):
+        value = os.environ.get(var, "").strip()
+        if value:
+            return value
+    if os.environ.get("ANTHROPIC_BEDROCK_MANTLE_BASE_URL", "").strip():
+        return None
+    try:
+        import boto3
+
+        profile_region = boto3.Session().region_name
+    except Exception:
+        profile_region = None
+    return profile_region or DEFAULT_BEDROCK_REGION
 
 
 def _resolve_attested_api_key(backend: str) -> str | None:
@@ -337,8 +409,8 @@ def backend_supports_vision(backend: str) -> bool:
     ollama) return False, so a frames job is never silently downgraded to a
     text-only summary on fallback — it stays on a vision tier or fails loud.
     """
-    if backend == "tinfoil":
-        return True  # primary vision tier (deepseek-v4-1-flash)
+    if backend in ("tinfoil", "bedrock"):
+        return True  # tinfoil: deepseek-v4-1-flash; bedrock: every Claude model
     if backend in ATTESTED_BACKENDS:
         return ATTESTED_BACKENDS[backend]["vision_model"] is not None
     return False  # ollama local tier is text-only (mmproj vision unsupported)
@@ -357,9 +429,10 @@ def discover_cue_frames(session_dir: Path) -> list[Path]:
         return []
 
 
-# Supported backends.  All are private: tinfoil/venice/near run inside a
-# hardware-attested TEE, ollama runs on your own machine.
-BACKENDS = ("ollama", "tinfoil", "venice", "near")
+# Supported backends.  tinfoil/venice/near run inside a hardware-attested
+# TEE and ollama runs on your own machine.  bedrock is the exception: AWS can
+# process the content, so it is opt-in only and never in the default chain.
+BACKENDS = ("ollama", "tinfoil", "venice", "near", "bedrock")
 
 # Removed in 0.19.0 because the provider could read meeting content.  Kept
 # as a named set so stale environment config degrades with a warning instead
@@ -707,6 +780,8 @@ def _default_model_for_backend(backend: str) -> str:
         return DEFAULT_TINFOIL_MODEL
     if backend in ATTESTED_BACKENDS:
         return str(ATTESTED_BACKENDS[backend]["model"])
+    if backend == "bedrock":
+        return DEFAULT_BEDROCK_MODEL
     return os.environ.get("MILLET_OLLAMA_MODEL", "").strip() or DEFAULT_OLLAMA_MODEL
 
 
@@ -771,6 +846,9 @@ class SummaryConfig:
         MILLET_SUMMARY_MODEL        -> model    (default: per-backend)
         MILLET_SUMMARY_TEMPLATE     -> template (default: None = meeting summary)
         TINFOIL_API_KEY             -> required for the tinfoil backend
+        AWS_PROFILE / AWS_REGION    -> credentials/region for the bedrock backend
+        MILLET_BEDROCK_REGION       -> bedrock region override (default: AWS chain, then us-east-1)
+        MILLET_BEDROCK_EFFORT       -> bedrock effort (default: medium; "" omits)
 
     Operator-level knob (read at dispatch time, not stored here):
         MILLET_SUMMARY_FALLBACK_ORDER  -> comma-separated fallback chain
@@ -1055,6 +1133,8 @@ def is_backend_available(config: SummaryConfig | None = None) -> bool:
             importlib.util.find_spec("openai") is not None
             and bool(_resolve_attested_api_key(config.backend))
         )
+    if config.backend == "bedrock":
+        return bedrock_sdk_installed() and _bedrock_credentials_available()
     return is_ollama_available(config.ollama_url)
 
 
@@ -1083,6 +1163,17 @@ def _backend_not_available_message(config: SummaryConfig) -> str:
         return (
             f"{cfg['key_env']} is not set and key file {cfg['key_file']} not "
             f"found; the {config.backend!r} attested backend is unavailable."
+        )
+    if config.backend == "bedrock":
+        if not bedrock_sdk_installed():
+            return (
+                "the Anthropic SDK with Bedrock support is not installed. "
+                "Install it with `pip install 'millet-pipeline[bedrock]'`."
+            )
+        return (
+            "no AWS credentials found for Bedrock. Set AWS_PROFILE (or "
+            "AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or "
+            "AWS_BEARER_TOKEN_BEDROCK), e.g. after `aws sso login`."
         )
     return f"Ollama is not running at {config.ollama_url}. Start it with: ollama serve"
 
@@ -1823,6 +1914,117 @@ def _summarize_attested_oai(
     )
 
 
+# ─── AWS Bedrock backend ──────────────────────────────────────────────────
+
+
+def _bedrock_image_media_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
+def _summarize_bedrock(
+    system_prompt: str,
+    user_prompt: str,
+    config: SummaryConfig,
+) -> MeetingSummary:
+    """Summarize via Claude in Amazon Bedrock (Anthropic SDK Mantle client).
+
+    NOT private in the TEE sense: AWS processes the transcript.  The result
+    is labelled ``(Bedrock)`` and never gets the PDF attestation footer.
+
+    Streams the response (long transcripts + adaptive thinking can run past
+    a non-streaming HTTP timeout).  The SDK already retries 429/5xx and
+    connection errors; anything else propagates to summarize()'s fallback
+    loop.  No ``temperature``: current Claude models reject sampling params.
+    """
+    import time
+
+    from anthropic import AnthropicBedrockMantle, BetaRefusalFallbackMiddleware
+
+    region = _resolve_bedrock_region()
+    effort = os.environ.get("MILLET_BEDROCK_EFFORT", DEFAULT_BEDROCK_EFFORT).strip()
+    model = config.model
+
+    client = AnthropicBedrockMantle(
+        aws_region=region,
+        timeout=config.timeout,
+        middleware=[
+            BetaRefusalFallbackMiddleware([{"model": BEDROCK_REFUSAL_FALLBACK_MODEL}])
+        ],
+    )
+
+    frames = config.frames or []
+    content: list[dict] = []
+    for p in frames:
+        try:
+            encoded = base64.b64encode(p.read_bytes()).decode("ascii")
+        except OSError as exc:
+            logger.warning("frames: skipping unreadable %s (%s)", p.name, exc)
+            continue
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": _bedrock_image_media_type(p),
+                "data": encoded,
+            },
+        })
+    frames_sent = len(content)
+    content.append({"type": "text", "text": user_prompt})
+
+    kwargs: dict[str, Any] = {}
+    if effort:
+        kwargs["output_config"] = {"effort": effort}
+
+    t0 = time.time()
+    try:
+        with client.beta.messages.stream(
+            model=model,
+            max_tokens=_BEDROCK_MAX_TOKENS,
+            system=system_prompt,
+            messages=[{"role": "user", "content": content}],
+            **kwargs,
+        ) as stream:
+            response = stream.get_final_message()
+    except Exception as e:
+        raise RuntimeError(f"bedrock API error ({model}): {e}") from e
+    elapsed = time.time() - t0
+
+    if response.stop_reason == "refusal":
+        raise RuntimeError(
+            f"bedrock: {model} and fallback {BEDROCK_REFUSAL_FALLBACK_MODEL} "
+            "both declined to summarize this transcript."
+        )
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"bedrock: {model} hit max_tokens ({_BEDROCK_MAX_TOKENS}); "
+            "the summary would be truncated."
+        )
+
+    text = "\n".join(b.text for b in response.content if b.type == "text").strip()
+    if not text:
+        raise RuntimeError(f"bedrock returned an empty response for model {model!r}.")
+
+    # A fallback_message entry in usage.iterations means the refusal
+    # middleware re-ran the request on the fallback model; record that model
+    # so the provenance is never hidden.
+    iterations = getattr(response.usage, "iterations", None) or []
+    refusal_fallback = any(getattr(i, "type", None) == "fallback_message" for i in iterations)
+    served_by = BEDROCK_REFUSAL_FALLBACK_MODEL if refusal_fallback else model
+    return MeetingSummary(
+        markdown=text,
+        model=f"{served_by} (Bedrock)",
+        elapsed_seconds=elapsed,
+        backend="bedrock",
+        fallback_used=refusal_fallback,
+        frames_used=frames_sent,
+    )
+
+
 # ─── Response validation ──────────────────────────────────────────────────
 
 # Patterns that indicate the "summary" is actually an error response from
@@ -1900,6 +2102,8 @@ def _dispatch(
         result = _summarize_attested_oai(
             backend, system_prompt, user_prompt, fallback_config
         )
+    elif backend == "bedrock":
+        result = _summarize_bedrock(system_prompt, user_prompt, fallback_config)
     else:
         # Ollama: prefer the two-pass flow unless explicitly opted out.  A
         # named summary template always uses the single-pass flow — the

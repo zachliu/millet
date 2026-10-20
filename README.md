@@ -289,7 +289,7 @@ Options:
 - `--min-speakers 2` / `--max-speakers 6` -- hint for number of speakers
 - `--no-diarize` -- skip speaker diarization
 - `--no-summarize` -- skip AI summary generation
-- `--summary-backend ollama` -- summary backend (`tinfoil` default, or `ollama`)
+- `--summary-backend ollama` -- summary backend (`tinfoil` default, `ollama`, or `bedrock`)
 - `--summary-model <model>` -- model for summary (default: per-backend)
 - `--summary-template <name>` -- use a named summary template instead of the
   default meeting summary (e.g. `iteration-plan` for a narrated walkthrough
@@ -376,6 +376,12 @@ a **sync confirmation prompt** appears with Push / Skip buttons.
 ```bash
 millet label ~/meet-recordings/meeting-20260313-214133
 ```
+
+Raw speaker ids depend on the mixdown mode.  The default `dual-diarize` keeps
+pyannote's cluster ids (`SPEAKER_00`, `SPEAKER_01`, ...) for remote speakers, and
+uses a plain `REMOTE` bucket for speech no cluster covers (`label --auto`
+renames a filler-only `REMOTE` bucket to `CROSSTALK`).  `--mixdown mono`
+labels remotes `REMOTE` / `REMOTE_1`, `REMOTE_2`, ... instead.
 
 For each speaker in the recording, `millet label`:
 1. Shows a table of all speakers (label, channel, segment count, sample text)
@@ -545,6 +551,7 @@ millet supports two backends, both private, with automatic fallback:
 |---------|-------|------|---------|---------|
 | `tinfoil` (default) | `pip install 'millet-pipeline[tee]'`, set `TINFOIL_API_KEY` (or drop a key file at `~/models/tinfoil/tinfoil.txt`) | ~$0.03/meeting | Excellent (DeepSeek V4.1 Flash) | **Hardware-attested TEE — prompts not visible to provider/operator** |
 | `ollama` | `ollama serve` + `ollama pull qwen3.5:9b` | Free | Good | Fully local |
+| `bedrock` (fork, opt-in) | `pip install 'millet-pipeline[bedrock]'`, AWS credentials with Bedrock model access | AWS Bedrock pricing | Claude Opus 5.5 by default | **Not private: AWS processes the transcript** |
 
 `claudemax`, `openrouter` and the generic `openai` backend were **removed in
 0.19.0**.  They were the only way meeting content reached a party that could
@@ -595,6 +602,33 @@ Two narrower safety nets sit inside that:
   switch is marked in the `.meta.json` sidecar.  (Until 0.21.2 a requested
   preset failed loud instead of falling back — a guard from the era when
   presets selected between backends of different privacy.)
+
+### AWS Bedrock backend (fork addition)
+
+`--summary-backend bedrock` summarizes with Claude in Amazon Bedrock through
+the Anthropic SDK (`AnthropicBedrockMantle`).  Unlike the other backends it is
+not a TEE and not local, so it is **opt-in only**: it never joins the default
+fallback chain, and a Bedrock summary never gets the PDF attestation footer.
+If Bedrock fails, the normal private chain takes over.
+
+```bash
+pip install 'millet-pipeline[bedrock]'
+export AWS_PROFILE=my-profile          # or AWS_ACCESS_KEY_ID/..., or AWS_BEARER_TOKEN_BEDROCK
+export AWS_REGION=us-east-1            # optional: defaults to the AWS profile's region, then us-east-1
+millet transcribe --summary-backend bedrock ~/meet-recordings/meeting-20260312-140000/meeting-20260312-140000.wav
+
+# Other Claude models: any `anthropic.`-prefixed Bedrock model id
+millet transcribe --summary-backend bedrock --summary-model anthropic.claude-sonnet-5-5 ...
+```
+
+- Default model `anthropic.claude-opus-5-5`, effort `medium`
+  (`MILLET_BEDROCK_EFFORT`; set it empty for models that reject `effort`).
+- Screen-recording frames are sent as image blocks.
+- A policy refusal is retried once on `anthropic.claude-opus-4-8` via the SDK's
+  client-side fallback middleware; that is recorded in the `.meta.json`
+  provenance.
+- Check whether model-invocation logging is enabled in your AWS account if you
+  care where transcripts are retained.
 
 ### Summarization presets (deprecated)
 
@@ -816,11 +850,13 @@ spellings are honored for one more release with a `DeprecationWarning`):
 
 | Variable | Purpose |
 |----------|---------|
-| `MILLET_SUMMARY_BACKEND` | Default summary backend (`tinfoil` default, or `ollama`) |
+| `MILLET_SUMMARY_BACKEND` | Default summary backend (`tinfoil` default, `ollama`, or `bedrock`) |
 | `MILLET_SUMMARY_MODEL` | Default summary model for the chosen backend |
 | `MILLET_SUMMARY_PRESET` | Deprecated. All three names resolve to the default; removed in 0.21.0 |
 | `MILLET_OLLAMA_SINGLEPASS` | Set to `1` to disable two-pass Ollama summarization |
 | `TINFOIL_API_KEY` | Required for the `tinfoil` backend (or a key file at `~/models/tinfoil/tinfoil.txt`) |
+| `MILLET_BEDROCK_REGION` | AWS region for the `bedrock` backend (default: `AWS_REGION` / `AWS_DEFAULT_REGION`, the AWS profile's region, then `us-east-1`) |
+| `MILLET_BEDROCK_EFFORT` | Effort for the `bedrock` backend (default `medium`; empty omits it) |
 | `HF_TOKEN` | HuggingFace token for pyannote diarization |
 | `MILLET_CONFIG_DIR` | Override the config dir (default `~/.config/meet`) |
 | `MILLET_PROFILES_PATH` | Override the voiceprint profile DB path |

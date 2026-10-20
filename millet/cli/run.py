@@ -73,10 +73,10 @@ from ._helpers import (
 @click.option(
     "--summary-backend",
     type=click.Choice(
-        ["tinfoil", "ollama"], case_sensitive=False
+        ["tinfoil", "ollama", "bedrock"], case_sensitive=False
     ),
     default=None,
-    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var)",
+    help="Summary backend (default: tinfoil, or MILLET_SUMMARY_BACKEND env var). bedrock sends the transcript to AWS.",
 )
 @click.option(
     "--summary-model",
@@ -222,11 +222,11 @@ def run(
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
             click.echo(err=True)
             click.echo("  To download it, run:", err=True)
-            click.echo(f"    meet download {exc.lang}", err=True)
+            click.echo(f"    millet download {exc.lang}", err=True)
             click.echo(err=True)
             click.echo("  Or re-run with --skip-alignment:", err=True)
             click.echo(
-                f"    meet transcribe {output} --language {exc.lang} --skip-alignment",
+                f"    millet transcribe {output} --language {exc.lang} --skip-alignment",
                 err=True,
             )
             click.echo(err=True)

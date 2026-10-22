@@ -2720,7 +2720,11 @@ def _correct_mic_bleed_segments(
         for r_start, r_end, r_text in remote_norm:
             if r_end < seg.start - 8.0 or r_start > seg.end + 8.0:
                 continue
-            if difflib.SequenceMatcher(None, t0, r_text).ratio() >= dup_sim:
+            # autojunk=False: difflib's default heuristic discards common
+            # characters (spaces, vowels) in strings >= 200 chars, so a long
+            # echo scored ~0.03 and was never caught.
+            matcher = difflib.SequenceMatcher(None, t0, r_text, autojunk=False)
+            if matcher.ratio() >= dup_sim:
                 return True
         return False
 

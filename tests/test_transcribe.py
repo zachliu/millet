@@ -1222,6 +1222,29 @@ class TestCorrectMicBleedSegments:
         out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
         assert out == []
 
+    def test_long_echo_with_different_wording_dropped(self, tmp_path):
+        """A >200-char echo transcribed differently on each channel is caught.
+
+        difflib's autojunk heuristic scored this pair 0.56, under the 0.70 cutoff.
+        """
+        remote = (
+            "um so so the plan for for next week is uh is like we we finish the uh "
+            "migration script first you know and and then we like run it run it against "
+            "the um staging copy of the uh database you know just to to make sure that "
+            "um that nothing like breaks before we uh we schedule the the real cutover "
+            "with with the uh ops folks so um yeah"
+        )
+        echo = (
+            "So the plan for next week is we finish the migration script first, and then "
+            "we run it against the staging copy of the database, just to make sure that "
+            "nothing breaks before we schedule the real cutover with the ops folks."
+        )
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 24.0, "sys")])
+        mic_segs = [Segment(1.0, 24.0, echo, speaker="YOU")]
+        sys_segs = [Segment(0.0, 24.0, remote, speaker="SPEAKER_00")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert out == []
+
     def test_empty_segment_dropped(self, tmp_path):
         """Punctuation-only mic artifacts are removed."""
         wav = _write_stereo(tmp_path / "m.wav", [(0.0, 1.0, "mic")])

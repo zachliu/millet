@@ -178,7 +178,7 @@ def _get_inference():
     if not candidates:
         raise RuntimeError(
             "pyannote diarization model not found in HuggingFace cache. "
-            "Run meet on a recording first to download it."
+            "Run millet transcribe on a recording first to download it."
         )
 
     # Find the embedding model inside the first matching snapshot

@@ -186,7 +186,7 @@ def ingest(
 
     \b
     SESSION_DIRS one or more meeting session directories. Each directory
-    must contain a transcript JSON file produced by `meet transcribe`.
+    must contain a transcript JSON file produced by `millet transcribe`.
 
     For every session, the transcript is re-summarized with the configured
     backend so that the LLM emits the schema_version 1 JSON data block.
@@ -199,9 +199,9 @@ def ingest(
 
     \b
     Examples:
-        meet ingest ~/meet-recordings/meeting-2026*
-        meet ingest ./session-dir --dry-run
-        meet ingest ./session-dir --force --no-pdf
+        millet ingest ~/meet-recordings/meeting-2026*
+        millet ingest ./session-dir --dry-run
+        millet ingest ./session-dir --force --no-pdf
     """
     # --re-llm is currently the only mode; the flag is reserved for a
     # future regex-only parser. Reject the contradictory case explicitly.

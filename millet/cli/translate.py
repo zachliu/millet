@@ -32,8 +32,8 @@ def translate(session_dir, target_lang, summary_model):
 
     \b
     Examples:
-        meet translate ~/meet-recordings/meeting-20260313-231509
-        meet translate ~/meet-recordings/meeting-20260313-231509 --to de
+        millet translate ~/meet-recordings/meeting-20260313-231509
+        millet translate ~/meet-recordings/meeting-20260313-231509 --to de
     """
     import requests as req
 

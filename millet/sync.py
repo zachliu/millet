@@ -577,7 +577,7 @@ def _get_clone_dir(team: str | None = None) -> Path:
         raise RuntimeError(
             "No repo_url configured for sync. "
             f"Set it in {_resolve_sync_config_path(team)} or run: "
-            "meet sync --init-config"
+            "millet sync --init-config"
         )
     return _clone_dir_for(repo_url, team)
 
@@ -620,7 +620,7 @@ def ensure_repo_cloned(progress_callback=None, team: str | None = None) -> Path:
         raise RuntimeError(
             "No repo_url configured for sync. "
             f"Set it in {_resolve_sync_config_path(team)} or run: "
-            "meet sync --init-config"
+            "millet sync --init-config"
         )
     _validate_repo_url(repo_url)
 

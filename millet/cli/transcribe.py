@@ -24,7 +24,7 @@ def _echo_offline_model_help(model: str, audio_file: str) -> None:
     )
     click.echo(err=True)
     click.echo("  Cache the model once with downloads enabled, then retry:", err=True)
-    click.echo(f"    HF_HUB_OFFLINE=0 meet transcribe {audio_file}", err=True)
+    click.echo(f"    HF_HUB_OFFLINE=0 millet transcribe {audio_file}", err=True)
     click.echo(err=True)
     click.echo("  Or pre-download it, e.g.:", err=True)
     click.echo(

@@ -18,9 +18,9 @@ def download(languages, download_all):
 
     \b
     Examples:
-        meet download de tr fa    # download German, Turkish, Farsi
-        meet download --all       # download all supported models
-        meet download parakeet    # download the Parakeet ASR model (English)
+        millet download de tr fa    # download German, Turkish, Farsi
+        millet download --all       # download all supported models
+        millet download parakeet    # download the Parakeet ASR model (English)
     """
     from millet.transcribe import (
         download_alignment_model,
@@ -67,8 +67,8 @@ def download(languages, download_all):
                 f"  {lang:<6} {details['name']:<10} {details['model']:<50} {details['size']:<10} {status}"
             )
         click.echo()
-        click.echo("To download: meet download <lang> [<lang> ...]")
-        click.echo("To download all: meet download --all")
+        click.echo("To download: millet download <lang> [<lang> ...]")
+        click.echo("To download all: millet download --all")
         return
 
     # Validate languages

@@ -1245,6 +1245,71 @@ class TestCorrectMicBleedSegments:
         out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
         assert out == []
 
+    def test_echo_spanning_several_remote_segments_dropped(self, tmp_path):
+        """One long mic echo of a remote run split into three segments is dropped.
+
+        Against any single remote segment the similarity ratio is at most ~0.5,
+        so the echo used to be reassigned to the remote and printed twice.
+        """
+        remote = [
+            "we moved the nightly backup to two in the morning",
+            "because the old window collided with the report job",
+            "and the report job kept timing out on the big tables",
+        ]
+        echo = (
+            "we moved the nightly backup to two in the morning because the old "
+            "window collided with the report job and the report job kept timing "
+            "out on the big tables"
+        )
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 15.0, "sys")])
+        sys_segs = [
+            Segment(0.0, 5.0, remote[0], speaker="SPEAKER_00"),
+            Segment(5.0, 10.0, remote[1], speaker="SPEAKER_00"),
+            Segment(10.0, 15.0, remote[2], speaker="SPEAKER_00"),
+        ]
+        mic_segs = [Segment(0.2, 15.0, echo, speaker="YOU")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert out == []
+
+    def test_short_local_reply_during_remote_speech_kept(self, tmp_path):
+        """A short local reply whose words occur in nearby remote speech stays.
+
+        Too few words to call it an echo by coverage alone.
+        """
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 2.0, "mic")])
+        sys_segs = [
+            Segment(0.0, 6.0, "yeah so the deploy is fine and the tests pass", speaker="SPEAKER_00"),
+        ]
+        mic_segs = [Segment(0.5, 1.5, "Yeah, the tests pass.", speaker="YOU")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert [(s.text, s.speaker) for s in out] == [("Yeah, the tests pass.", "YOU")]
+
+    def test_short_echo_inside_long_remote_segment_dropped(self, tmp_path):
+        """A short mic echo of a phrase inside one long remote segment is dropped."""
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 12.0, "sys")])
+        sys_segs = [
+            Segment(
+                0.0, 12.0,
+                "so the cache is warm again and the dashboard loads in two seconds now",
+                speaker="SPEAKER_00",
+            ),
+        ]
+        mic_segs = [Segment(6.0, 8.0, "In two seconds now.", speaker="YOU")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert out == []
+
+    def test_local_sentence_near_remote_speech_kept(self, tmp_path):
+        """Genuine local speech overlapping unrelated remote speech stays YOU."""
+        wav = _write_stereo(tmp_path / "m.wav", [(0.0, 6.0, "mic")])
+        sys_segs = [
+            Segment(0.0, 5.0, "the vendor sent the invoice for the third quarter", speaker="SPEAKER_00"),
+            Segment(5.0, 10.0, "and we still need to check it against the contract", speaker="SPEAKER_00"),
+        ]
+        text = "I can take the onboarding doc and send it out tomorrow morning."
+        mic_segs = [Segment(1.0, 6.0, text, speaker="YOU")]
+        out = _correct_mic_bleed_segments(wav, mic_segs, sys_segs, margin=0.30)
+        assert [(s.text, s.speaker) for s in out] == [(text, "YOU")]
+
     def test_empty_segment_dropped(self, tmp_path):
         """Punctuation-only mic artifacts are removed."""
         wav = _write_stereo(tmp_path / "m.wav", [(0.0, 1.0, "mic")])

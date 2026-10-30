@@ -2662,6 +2662,7 @@ def _correct_mic_bleed_segments(
     margin: float = 0.30,
     word_sys_frac: float = 0.60,
     dup_sim: float = 0.70,
+    echo_min_words: int = 6,
 ) -> list[Segment]:
     """Reassign mic-channel ("YOU") segments that are actually remote bleed.
 
@@ -2676,7 +2677,10 @@ def _correct_mic_bleed_segments(
       (``< 0.5 - margin``) — unambiguous bleed;
     * at least ``word_sys_frac`` of its words are individually system-dominant;
     * its text closely matches (``>= dup_sim``) a temporally overlapping remote
-      segment — a delayed echo of what a remote actually said.
+      segment, or (at ``echo_min_words`` words or more) ``dup_sim`` of its
+      words appear in order in the nearby remote segments joined together,
+      or (3 words up to ``echo_min_words``) it appears word for word inside a
+      remote segment it overlaps — a delayed echo of what a remote said.
 
     An **echo** (text twin of an overlapping remote segment) is dropped: its
     content is by definition already in the system-channel transcript, and
@@ -2717,16 +2721,40 @@ def _correct_mic_bleed_segments(
         t0 = _norm_dup_text(seg.text)
         if len(t0) < 4:
             return False
-        for r_start, r_end, r_text in remote_norm:
-            if r_end < seg.start - 8.0 or r_start > seg.end + 8.0:
-                continue
+        near = sorted(
+            (r_start, r_text)
+            for r_start, r_end, r_text in remote_norm
+            if not (r_end < seg.start - 8.0 or r_start > seg.end + 8.0)
+        )
+        for _, r_text in near:
             # autojunk=False: difflib's default heuristic discards common
             # characters (spaces, vowels) in strings >= 200 chars, so a long
             # echo scored ~0.03 and was never caught.
             matcher = difflib.SequenceMatcher(None, t0, r_text, autojunk=False)
             if matcher.ratio() >= dup_sim:
                 return True
-        return False
+        # The mic often hears one long run of remote speech that the system
+        # channel split into several segments; no single one scores high
+        # enough.  Check what share of the mic words appear, in order, in the
+        # nearby remote text joined up.
+        words = t0.split()
+        if len(words) < echo_min_words:
+            # Too short for coverage: common words would match by chance.
+            # Accept only an exact phrase inside a remote segment that
+            # overlaps in time; one- and two-word replies ("yeah", "sounds
+            # good") are never treated as echoes.
+            if len(words) < 3:
+                return False
+            phrase = f" {' '.join(words)} "
+            return any(
+                min(seg.end, r_end) > max(seg.start, r_start)
+                and phrase in f" {' '.join(r_text.split())} "
+                for r_start, r_end, r_text in remote_norm
+            )
+        joined = " ".join(r_text for _, r_text in near).split()
+        matcher = difflib.SequenceMatcher(None, words, joined, autojunk=False)
+        covered = sum(b.size for b in matcher.get_matching_blocks())
+        return covered / len(words) >= dup_sim
 
     def _word_sys_fraction(seg: Segment) -> float | None:
         flags: list[bool] = []
